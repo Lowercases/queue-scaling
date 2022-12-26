@@ -51,7 +51,7 @@ func (m *SQSManager) run(updatePeriod time.Duration) {
 func (m *SQSManager) mustUpdateStats() {
 	err := m.updateStats()
 	if err != nil {
-		log.Fatalf("Error updating stats: %s", err)
+		log.Fatalf("Error updating stats for %s: %s", m.queue, err)
 	}
 }
 
