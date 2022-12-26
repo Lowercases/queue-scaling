@@ -51,6 +51,8 @@ func (c *Control) Start() {
 }
 
 func (c *Control) run() {
+	firstIteration := true
+
 	for {
 		time.Sleep(time.Duration(c.t) * c.unit)
 
@@ -119,6 +121,13 @@ func (c *Control) run() {
 				c.r = R
 				c.k = 0
 			}
+		}
+
+		if firstIteration {
+			// Don't set beta the first iteration since the system hasn't had
+			// time to integrate.
+			firstIteration = false
+			continue
 		}
 
 		// Set b
