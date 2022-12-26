@@ -109,7 +109,7 @@ func (c *Control) run() {
 				c.r = c.dx / c.b
 				c.k = 0
 
-			} else {	// X = Y
+			} else { // X = Y
 				// The system has stopped, or it's processing messages too
 				// quickly to be able to observe it. Repeat the calculations
 				// from above but instead of using the harmonic mean (which
@@ -120,7 +120,7 @@ func (c *Control) run() {
 				// is started in a system that's already overscaled).
 				// We also can't use Little Theorem's, so just keep the computed
 				// R.
-				c.b = c.dx / R / 2		// Arithmetic mean with X-Y =0.
+				c.b = c.dx / R / 2 // Arithmetic mean with X-Y =0.
 				c.r = R
 				c.k = 0
 			}

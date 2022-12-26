@@ -2,6 +2,7 @@ package sqs
 
 import (
 	"fmt"
+	"log"
 	"math"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -62,17 +63,15 @@ func (m *ECSManager) Beta() (uint, error) {
 
 }
 
-func (m *ECSManager) updateB(b int64) error {
+func (m *ECSManager) updateB(b int64) {
 	_, err := m.ecs.UpdateService(&ecs.UpdateServiceInput{
 		Cluster:      aws.String(m.cluster),
 		Service:      aws.String(m.service),
 		DesiredCount: aws.Int64(b),
 	})
 	if err != nil {
-		return fmt.Errorf("Error updating service %s in cluster %s: %s",
+		log.Printf("Error updating service %s in cluster %s: %s",
 			m.service, m.cluster, err)
 	}
-
-	return nil
 
 }
