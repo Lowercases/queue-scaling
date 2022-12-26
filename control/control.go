@@ -20,6 +20,8 @@ type Manager interface {
 type Control struct {
 	plant Manager
 
+	dryRun bool
+
 	// Settings
 	t    uint
 	mq   uint
@@ -44,6 +46,10 @@ func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Durat
 		unit:                  unit,
 		betaIntegralTimestamp: time.Now(),
 	}
+}
+
+func (c *Control) SetDryRun() {
+	c.dryRun = true
 }
 
 func (c *Control) Start() {
@@ -121,6 +127,10 @@ func (c *Control) run() {
 				c.r = R
 				c.k = 0
 			}
+		}
+
+		if c.dryRun {
+			continue
 		}
 
 		if firstIteration {
