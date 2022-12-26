@@ -68,9 +68,15 @@ func (c *Control) Run() {
 
 		if c.y < 1 || c.betaIntegral < 1 {
 			// Exclusive Little's theorem estimation of the rate since the
-			// system hasn't started yet. The system will necessarily overshoot,
-			// since we've got no point of reference.
-			c.b = float64(XmY)
+			// system hasn't started yet. This is an arbitrary sane choice,
+			// since we've got no point of reference -- we'll leave it alone if
+			// greater than 0, and set it to 1 if there's data but it's scaled
+			// to 0.
+			if B > 0 {
+				c.b = float64(B)
+			} else if c.y > 0 || Q > 0 {
+				c.b = 1	// Arbitrary choice. The system should self-correct.
+			}
 
 		} else { // X >= Y > 0
 			// The system is operating with a non-zero input and output rate.
