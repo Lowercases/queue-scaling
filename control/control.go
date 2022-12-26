@@ -86,11 +86,6 @@ func (c *Control) run() {
 				// Q > 0 means the system is queued up so just use a y-dot
 				// estimation of the rate since workers are operating at full
 				// speed.
-				// The case X = Y can mean that either the system is completely
-				// stopped (in which case b and k will compute to 0) or a race
-				// condition in a system that's operating in regime (dx > 0). In
-				// either case, since we can't use Little's Theorem, the math is
-				// the same than in the Q > 0 case
 				c.r = R
 				c.b = c.dx / R
 				c.k = float64(Q) / R / float64(c.mq)
@@ -181,5 +176,5 @@ func (c *Control) MuP() float64 {
 	}
 
 	// No data
-	return c.dx
+	return 0
 }
