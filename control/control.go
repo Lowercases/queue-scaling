@@ -52,11 +52,7 @@ func (c *Control) SetDryRun() {
 	c.dryRun = true
 }
 
-func (c *Control) Start() {
-	go c.run()
-}
-
-func (c *Control) run() {
+func (c *Control) Run() {
 	firstIteration := true
 
 	for {

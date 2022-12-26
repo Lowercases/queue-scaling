@@ -33,9 +33,11 @@ func NewECSManager(cluster, service string) *ECSManager {
 }
 
 func (m *ECSManager) run() {
-	for {
+	open := true
+	for open {
+		var b float64
 		select {
-		case b := <-m.setB:
+		case b, open = <-m.setB:
 			m.updateB(int64(math.Round(b)))
 		}
 	}

@@ -2,7 +2,6 @@ package sqs
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"time"
 
@@ -25,33 +24,30 @@ type SQSManager struct {
 	dx, dy float64
 	xmy, q uint
 
+	updatePeriod time.Duration
+
+	// Stats have errored, panic if queried
+	err error
+
 	control SQSControlManager
 }
 
 func NewSQSManager(queue string, updatePeriod time.Duration, control SQSControlManager) *SQSManager {
 	m := &SQSManager{
-		queue:   queue,
-		control: control,
+		queue:        queue,
+		control:      control,
 	}
 
-	m.mustUpdateStats()
+	m.err = m.updateStats()
 	go m.run(updatePeriod)
+
 	return m
 }
 
 func (m *SQSManager) run(updatePeriod time.Duration) {
-	go func() {
-		for {
-			time.Sleep(updatePeriod)
-			m.mustUpdateStats()
-		}
-	}()
-}
-
-func (m *SQSManager) mustUpdateStats() {
-	err := m.updateStats()
-	if err != nil {
-		log.Fatalf("Error updating stats for %s: %s", m.queue, err)
+	for {
+		m.err = m.updateStats()
+		time.Sleep(updatePeriod)
 	}
 }
 
@@ -62,7 +58,7 @@ func (m *SQSManager) SetB() chan float64 {
 func (m *SQSManager) Beta() uint {
 	beta, err := m.control.Beta()
 	if err != nil {
-		log.Fatalf("Error querying ECS manager: %s", err)
+		panic(fmt.Sprintf("Error querying ECS manager for %s: %s", m.queue, err))
 	}
 	return beta
 }
@@ -182,17 +178,29 @@ func (m *SQSManager) updateStats() error {
 }
 
 func (m *SQSManager) DXY(unit time.Duration) (float64, float64) {
+	if m.err != nil {
+		panic(m.err)
+	}
+
 	factor := float64(time.Minute / unit)
 	return m.dx / factor, m.dy / factor
 
 }
 
 func (m *SQSManager) Q() uint {
+	if m.err != nil {
+		panic(m.err)
+	}
+
 	return m.q
 
 }
 
 func (m *SQSManager) XmY() uint {
+	if m.err != nil {
+		panic(m.err)
+	}
+
 	return m.xmy
 }
 
