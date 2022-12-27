@@ -2,12 +2,13 @@ package sqs
 
 import (
 	"fmt"
-	"math"
+	"strconv"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	awssqs "github.com/aws/aws-sdk-go/service/sqs"
 )
 
 // Whatever's implementing the control, likely an ECS Manager.
@@ -19,6 +20,9 @@ type SQSControlManager interface {
 // Implements the control.Manager interface
 type SQSManager struct {
 	queue string
+
+	// Url for SQS API
+	queueUrl *string
 
 	// Stats
 	dx, dy float64
@@ -70,8 +74,45 @@ func (m *SQSManager) MuP() (float64, bool) {
 func (m *SQSManager) updateStats() error {
 	sess := session.Must(session.NewSession())
 	cw := cloudwatch.New(sess)
+	sqs := awssqs.New(sess)
 
 	t := time.Now().UTC()
+
+	if m.queueUrl == nil {
+		gquo, err := sqs.GetQueueUrl(&awssqs.GetQueueUrlInput{
+			QueueName: aws.String(m.queue),
+		})
+		if err != nil {
+			return fmt.Errorf("Error querying SQS: %s", err)
+		}
+		m.queueUrl = new(string)
+		*m.queueUrl = *gquo.QueueUrl
+	}
+
+	// These could be got from CloudWatch, but it's best to get them from SQS
+	// given that a sleepy queue (one that hasn't got a message for six hours)
+	// will be considered "asleep" by AWS and will stop updating CloudWatch.
+	// In order to wake it up, the SQS API must be hit, so we might as well
+	// query these from SQS directly.
+	gqao, err := sqs.GetQueueAttributes(&awssqs.GetQueueAttributesInput{
+		QueueUrl: m.queueUrl,
+		AttributeNames: []*string{
+			aws.String("ApproximateNumberOfMessagesNotVisible"),
+			aws.String("ApproximateNumberOfMessages"),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("Error querying SQS: %s", err)
+	}
+
+	q, err := strconv.Atoi(*gqao.Attributes["ApproximateNumberOfMessages"])
+	if err != nil {
+		return fmt.Errorf("Error parsing SQS response: %s", err)
+	}
+	w, err := strconv.Atoi(*gqao.Attributes["ApproximateNumberOfMessagesNotVisible"])
+	if err != nil {
+		return fmt.Errorf("Error parsing SQS response: %s", err)
+	}
 
 	gmdo, err := cw.GetMetricData(&cloudwatch.GetMetricDataInput{
 		MetricDataQueries: []*cloudwatch.MetricDataQuery{
@@ -105,62 +146,26 @@ func (m *SQSManager) updateStats() error {
 					Stat:   aws.String("Sum"),
 				},
 			},
-			{
-				Id: aws.String("visible"),
-				MetricStat: &cloudwatch.MetricStat{
-					Metric: &cloudwatch.Metric{
-						Namespace:  aws.String("AWS/SQS"),
-						MetricName: aws.String("ApproximateNumberOfMessagesVisible"),
-						Dimensions: []*cloudwatch.Dimension{{
-							Name:  aws.String("QueueName"),
-							Value: aws.String(m.queue),
-						}},
-					},
-					Period: aws.Int64(60),
-					Stat:   aws.String("Sum"),
-				},
-			},
-			{
-				Id: aws.String("notvisible"),
-				MetricStat: &cloudwatch.MetricStat{
-					Metric: &cloudwatch.Metric{
-						Namespace:  aws.String("AWS/SQS"),
-						MetricName: aws.String("ApproximateNumberOfMessagesNotVisible"),
-						Dimensions: []*cloudwatch.Dimension{{
-							Name:  aws.String("QueueName"),
-							Value: aws.String(m.queue),
-						}},
-					},
-					Period: aws.Int64(60),
-					Stat:   aws.String("Sum"),
-				},
-			},
 		},
 		StartTime: aws.Time(t.Add(-time.Minute * 3)),
 		EndTime:   aws.Time(t),
-		//NumberOfMessagesDeleted
 	})
 	if err != nil {
 		return fmt.Errorf("Error querying Cloudwatch: %s", err)
 	}
 
 	// FIXME parametrise in function of the fucking array we're sending
-	if len(gmdo.MetricDataResults) != 4 {
-		return fmt.Errorf("Error querying Cloudwatch: expected 4 results, got %d", len(gmdo.MetricDataResults))
+	if len(gmdo.MetricDataResults) != 2 {
+		return fmt.Errorf("Error querying Cloudwatch: expected 2 results, got %d", len(gmdo.MetricDataResults))
 	}
 
 	var dx, dy float64
-	var q, w float64
 	for _, results := range gmdo.MetricDataResults {
 		switch *results.Id {
 		case "sent":
 			dx, err = parseNextToLastMetric(results)
 		case "deleted":
 			dy, err = parseNextToLastMetric(results)
-		case "visible":
-			q, err = parseLastMetric(results)
-		case "notvisible":
-			w, err = parseLastMetric(results)
 		default:
 			err = fmt.Errorf("Unknown metric %s", *results.Id)
 		}
@@ -171,7 +176,7 @@ func (m *SQSManager) updateStats() error {
 
 	// It's ok to use data per minute
 	m.dx, m.dy = dx, dy
-	m.q, m.xmy = uint(math.Round(q)), uint(math.Round(q+w))
+	m.q, m.xmy = uint(q), uint(q + w)
 
 	return nil
 
