@@ -3,6 +3,8 @@ package control
 import (
 	"math"
 	"time"
+
+	"github.com/Lowercases/queue-scaling/ema"
 )
 
 type Manager interface {
@@ -36,6 +38,9 @@ type Control struct {
 	y                     float64
 	betaIntegral          float64
 	betaIntegralTimestamp time.Time
+
+	// Exponential Moving Average for beta setting.
+	betaEMA *ema.EMA
 }
 
 func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Duration) *Control {
@@ -45,11 +50,16 @@ func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Durat
 		mq:                    maxQueueTime,
 		unit:                  unit,
 		betaIntegralTimestamp: time.Now(),
+		betaEMA:               ema.NewEMA(1),
 	}
 }
 
 func (c *Control) SetDryRun() {
 	c.dryRun = true
+}
+
+func (c *Control) SetEMASize(size int) {
+	c.betaEMA = ema.NewEMA(size)
 }
 
 func (c *Control) Run() {
@@ -75,7 +85,7 @@ func (c *Control) Run() {
 			if B > 0 {
 				c.b = float64(B)
 			} else if c.y > 0 || Q > 0 {
-				c.b = 1	// Arbitrary choice. The system should self-correct.
+				c.b = 1 // Arbitrary choice. The system should self-correct.
 			}
 
 		} else { // X >= Y > 0
@@ -131,10 +141,6 @@ func (c *Control) Run() {
 			}
 		}
 
-		if c.dryRun {
-			continue
-		}
-
 		if firstIteration {
 			// Don't set beta the first iteration since the system hasn't had
 			// time to integrate.
@@ -142,8 +148,14 @@ func (c *Control) Run() {
 			continue
 		}
 
+		c.betaEMA.Add(c.b + c.k)
+
+		if c.dryRun {
+			continue
+		}
+
 		// Set b
-		c.plant.SetB() <- c.b + c.k
+		c.plant.SetB() <- c.betaEMA.Value()
 
 	}
 
@@ -183,6 +195,10 @@ func (c *Control) B() float64 {
 
 func (c *Control) K() float64 {
 	return c.k
+}
+
+func (c *Control) Beta() float64 {
+	return c.betaEMA.Value()
 }
 
 func (c *Control) MuP() float64 {

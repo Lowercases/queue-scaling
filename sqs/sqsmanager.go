@@ -34,8 +34,8 @@ type SQSManager struct {
 
 func NewSQSManager(queue string, updatePeriod time.Duration, control SQSControlManager) *SQSManager {
 	m := &SQSManager{
-		queue:        queue,
-		control:      control,
+		queue:   queue,
+		control: control,
 	}
 
 	m.err = m.updateStats()
