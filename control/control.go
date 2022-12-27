@@ -36,8 +36,7 @@ type Control struct {
 
 	// Beta integral and y estimation
 	y                     float64
-	betaIntegral          float64
-	betaIntegralTimestamp time.Time
+	betaIntegral          uint
 
 	// Exponential Moving Average for beta setting.
 	betaEMA *ema.EMA
@@ -49,7 +48,6 @@ func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Durat
 		t:                     controlPeriod,
 		mq:                    maxQueueTime,
 		unit:                  unit,
-		betaIntegralTimestamp: time.Now(),
 		betaEMA:               ema.NewEMA(1),
 	}
 }
@@ -73,10 +71,13 @@ func (c *Control) Run() {
 		B := c.plant.Beta()
 		Q := c.plant.Q()
 
-		c.y += c.dy * float64(c.t)
-		c.updateBetaIntegral(B)
+		// Integrate beta and y. Practically speaking, in order to integrate
+		// them we should multiply by the period; but since they are always used
+		// as a ratio y / betaIntegral or compared against 0, we can avoid that.
+		c.y += c.dy // * float64(c.t)
+		c.betaIntegral += B // * float64(c.t)
 
-		if c.y < 1 || c.betaIntegral < 1 {
+		if c.y * float64(c.t) < 1 || c.betaIntegral < 1 {
 			// Exclusive Little's theorem estimation of the rate since the
 			// system hasn't started yet. This is an arbitrary sane choice,
 			// since we've got no point of reference -- we'll leave it alone if
@@ -94,7 +95,7 @@ func (c *Control) Run() {
 			// instant throughput (y-dot/beta) and historic (y/B), since the
 			// latter is less exact but good when beta is close to zero, when
 			// the workers are very likely to be starved.
-			R := c.y / c.betaIntegral
+			R := c.y / float64(c.betaIntegral)
 			if B > 0 {
 				RI := c.dy / float64(B)
 				if RI > R {
@@ -158,15 +159,6 @@ func (c *Control) Run() {
 		c.plant.SetB() <- c.betaEMA.Value()
 
 	}
-
-}
-
-func (c *Control) updateBetaIntegral(beta uint) {
-	now := time.Now()
-	elapsed := now.Sub(c.betaIntegralTimestamp)
-
-	c.betaIntegral += elapsed.Seconds() * float64(time.Second/c.unit) * float64(beta)
-	c.betaIntegralTimestamp = now
 
 }
 
