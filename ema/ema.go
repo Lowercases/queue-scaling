@@ -10,6 +10,9 @@ type EMA struct {
 
 	// Cache for quick computing
 	e_minus_tau float64
+
+	// For exponentially moving integrals
+	integral bool
 }
 
 // New Exponentially Moving Average. The argument is the amount of samples we'll
@@ -17,6 +20,16 @@ type EMA struct {
 // a weight of 5%, the point at which we discard it. The 0-th sample has got a
 // weight of 1.
 func NewEMA(n_p95 int) *EMA {
+	return newema(n_p95, false)
+}
+
+// New Exponentially Moving Integral. Works the same as the EMA does, but
+// without dividing by the total weight at the end.
+func NewEMI(n_p95 int) *EMA {
+	return newema(n_p95, true)
+}
+
+func newema(n_p95 int, integral bool) *EMA {
 	if n_p95 < 1 {
 		panic("Size must be positive.")
 	}
@@ -24,6 +37,7 @@ func NewEMA(n_p95 int) *EMA {
 		history:     make([]float64, 0, n_p95),
 		size:        n_p95,
 		e_minus_tau: math.Pow(1.0/20.0, 1.0/float64(n_p95)),
+		integral:    integral,
 	}
 }
 
@@ -49,6 +63,10 @@ func (ema *EMA) Value() float64 {
 		total_weight += weight
 		weight *= ema.e_minus_tau
 	}
-	return value / total_weight
+
+	if !ema.integral {
+		value /= total_weight
+	}
+	return value
 
 }

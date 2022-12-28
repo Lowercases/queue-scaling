@@ -176,7 +176,7 @@ func (m *SQSManager) updateStats() error {
 
 	// It's ok to use data per minute
 	m.dx, m.dy = dx, dy
-	m.q, m.xmy = uint(q), uint(q + w)
+	m.q, m.xmy = uint(q), uint(q+w)
 
 	return nil
 

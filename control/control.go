@@ -35,8 +35,7 @@ type Control struct {
 	xd      uint    // expected messages in the system
 
 	// Beta integral and y estimation
-	y                     float64
-	betaIntegral          uint
+	y, betaIntegral *ema.EMA
 
 	// Exponential Moving Average for beta setting.
 	betaEMA *ema.EMA
@@ -44,11 +43,13 @@ type Control struct {
 
 func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Duration) *Control {
 	return &Control{
-		plant:                 plant,
-		t:                     controlPeriod,
-		mq:                    maxQueueTime,
-		unit:                  unit,
-		betaEMA:               ema.NewEMA(1),
+		plant:        plant,
+		t:            controlPeriod,
+		mq:           maxQueueTime,
+		unit:         unit,
+		betaEMA:      ema.NewEMA(1),
+		y:            ema.NewEMI(100),
+		betaIntegral: ema.NewEMI(100),
 	}
 }
 
@@ -58,6 +59,11 @@ func (c *Control) SetDryRun() {
 
 func (c *Control) SetEMASize(size int) {
 	c.betaEMA = ema.NewEMA(size)
+}
+
+func (c *Control) SetEMISize(size int) {
+	c.y = ema.NewEMI(size)
+	c.betaIntegral = ema.NewEMI(size)
 }
 
 func (c *Control) Run() {
@@ -74,10 +80,10 @@ func (c *Control) Run() {
 		// Integrate beta and y. Practically speaking, in order to integrate
 		// them we should multiply by the period; but since they are always used
 		// as a ratio y / betaIntegral or compared against 0, we can avoid that.
-		c.y += c.dy // * float64(c.t)
-		c.betaIntegral += B // * float64(c.t)
+		c.y.Add(c.dy)                  // * float64(c.t)
+		c.betaIntegral.Add(float64(B)) // * float64(c.t)
 
-		if c.y * float64(c.t) < 1 || c.betaIntegral < 1 {
+		if c.y.Value()*float64(c.t) < 1 || c.betaIntegral.Value() < 1 {
 			// Exclusive Little's theorem estimation of the rate since the
 			// system hasn't started yet. This is an arbitrary sane choice,
 			// since we've got no point of reference -- we'll leave it alone if
@@ -85,7 +91,7 @@ func (c *Control) Run() {
 			// to 0.
 			if B > 0 {
 				c.b = float64(B)
-			} else if c.y > 0 || Q > 0 {
+			} else if c.y.Value() > 0 || Q > 0 {
 				c.b = 1 // Arbitrary choice. The system should self-correct.
 			}
 
@@ -95,7 +101,7 @@ func (c *Control) Run() {
 			// instant throughput (y-dot/beta) and historic (y/B), since the
 			// latter is less exact but good when beta is close to zero, when
 			// the workers are very likely to be starved.
-			R := c.y / float64(c.betaIntegral)
+			R := c.y.Value() / c.betaIntegral.Value()
 			if B > 0 {
 				RI := c.dy / float64(B)
 				if RI > R {
