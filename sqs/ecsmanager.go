@@ -14,6 +14,7 @@ type ECSManager struct {
 	setB             chan float64
 	cluster, service string
 	ecs              *ecs.ECS
+	min, max         int64
 }
 
 func NewECSManager(cluster, service string) *ECSManager {
@@ -38,9 +39,23 @@ func (m *ECSManager) run() {
 		var b float64
 		select {
 		case b, open = <-m.setB:
-			m.updateB(int64(math.Round(b)))
+			v := int64(math.Round(b))
+			if m.min > 0 && v < m.min {
+				v = m.min
+			} else if m.max > 0 && v > m.max {
+				v = m.max
+			}
+			m.updateB(v)
 		}
 	}
+}
+
+func (m *ECSManager) SetLimits(min, max int64) {
+	if max > 0 && min > max {
+		panic("min > max")
+	}
+	m.min = min
+	m.max = max
 }
 
 func (m *ECSManager) SetB() chan float64 {
