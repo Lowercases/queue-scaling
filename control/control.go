@@ -155,14 +155,15 @@ func (c *Control) Run() {
 			continue
 		}
 
-		c.betaEMA.Add(c.b + c.k)
+		// c.k is bursty, we allow it to rapidly change.
+		c.betaEMA.Add(c.b)
 
 		if c.dryRun {
 			continue
 		}
 
 		// Set b
-		c.plant.SetB() <- c.betaEMA.Value()
+		c.plant.SetB() <- c.betaEMA.Value() + c.k
 
 	}
 
@@ -196,7 +197,7 @@ func (c *Control) K() float64 {
 }
 
 func (c *Control) Beta() float64 {
-	return c.betaEMA.Value()
+	return c.betaEMA.Value() + c.k
 }
 
 func (c *Control) MuP() float64 {
