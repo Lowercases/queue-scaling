@@ -83,7 +83,7 @@ func (m *SQSManager) updateStats() error {
 			QueueName: aws.String(m.queue),
 		})
 		if err != nil {
-			return fmt.Errorf("Error querying SQS: %s", err)
+			return fmt.Errorf("Error querying SQS: GetQueueUrl: %s", err)
 		}
 		m.queueUrl = new(string)
 		*m.queueUrl = *gquo.QueueUrl
@@ -102,7 +102,7 @@ func (m *SQSManager) updateStats() error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("Error querying SQS: %s", err)
+		return fmt.Errorf("Error querying SQS: GetQueueAttributes: %s", err)
 	}
 
 	q, err := strconv.Atoi(*gqao.Attributes["ApproximateNumberOfMessages"])
