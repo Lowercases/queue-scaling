@@ -84,15 +84,20 @@ func (c *Control) Run() {
 		c.betaIntegral.Add(float64(B)) // * float64(c.t)
 
 		if c.y.Value()*float64(c.t) < 1 || c.betaIntegral.Value() < 1 {
-			// Exclusive Little's theorem estimation of the rate since the
-			// system hasn't started yet. This is an arbitrary sane choice,
+			// The system hasn't started yet. This is an arbitrary sane choice,
 			// since we've got no point of reference -- we'll leave it alone if
 			// greater than 0, and set it to 1 if there's data but it's scaled
 			// to 0.
-			if B > 0 {
+			if XmY == 0 {
+				// The system isn't receiving messages, so it's safe to stop it
+				// or keep it stopped.
+				c.b = 0
+			} else if B > 0 {
 				c.b = float64(B)
-			} else if c.y.Value() > 0 || Q > 0 {
-				c.b = 1 // Arbitrary choice. The system should self-correct.
+			} else {
+				// Arbitrary choice. The system should self-correct as it learns
+				// its processing rate.
+				c.b = 1
 			}
 
 		} else { // X >= Y > 0
