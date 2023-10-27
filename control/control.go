@@ -39,17 +39,21 @@ type Control struct {
 
 	// Exponential Moving Average for beta setting.
 	betaEMA *ema.EMA
+
+	// Internal concurrency (for diagnostics)
+	internalConcurrency *ema.EMA
 }
 
 func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Duration) *Control {
 	return &Control{
-		plant:        plant,
-		t:            controlPeriod,
-		mq:           maxQueueTime,
-		unit:         unit,
-		betaEMA:      ema.NewEMA(1),
-		y:            ema.NewEMI(100),
-		betaIntegral: ema.NewEMI(100),
+		plant:               plant,
+		t:                   controlPeriod,
+		mq:                  maxQueueTime,
+		unit:                unit,
+		betaEMA:             ema.NewEMA(1),
+		y:                   ema.NewEMI(100),
+		betaIntegral:        ema.NewEMI(100),
+		internalConcurrency: ema.NewEMA(20),
 	}
 }
 
@@ -114,6 +118,9 @@ func (c *Control) Run() {
 				}
 			}
 
+			// Save internal concurrency.
+			c.internalConcurrency.Add(float64(W) / float64(B))
+
 			if Q > B {
 				// Q > 0 (considering Q <= beta as insignificant, as in high
 				// traffic it might be difficult to spot an actual 0) means the
@@ -127,11 +134,32 @@ func (c *Control) Run() {
 				// The system is either overscaled or in equilibrium. Use the
 				// mean between the two rate estimations, in order to bring the
 				// lower bound of the rate estimation (obtained though
-				// controlling beta) upwards towards the equilibrium value,
-				// given by Little's Theorem.
+				// controlling beta) up towards the equilibrium value, given by
+				// Little's Theorem.
 				// Why not using Little's Theorem right away? To avoid flapping.
+				//
+				// In our use of the Little's Theorem, we want to know the
+				// number of active workers (to know if this is lesser than β,
+				// i.e. some are starving). If the workers aren't internally
+				// concurrent, this means W is the number of active workers;
+				// however for internally concurrent workers this isn't true,
+				// we might have a very high W meaning many messages are being
+				// processed by the system, while the number of busy workers is
+				// still low.
+				// In order to have a good estimation of this, we keep an
+				// internal concurrency average from samples from when the
+				// system is queued up (Q > 0), which should mean that the
+				// system is showing its internal concurrency in W / β.
+				// We now use that to estimate number of active workers -- only
+				// if we know this number is above 1, i.e. we have confirmed
+				// internal concurrency.
+				busyWorkers := float64(W)
+				if c.internalConcurrency.Value() > 1.0 {
+					busyWorkers /= c.internalConcurrency.Value()
+				}
+
 				yBInv := R / c.dx
-				xBInv := 1.0 / float64(W)
+				xBInv := 1.0 / busyWorkers
 				// Harmonic mean to discard overscaled values
 				c.b = 2.0 / (xBInv + yBInv)
 				c.r = c.dx / c.b
@@ -219,4 +247,8 @@ func (c *Control) MuP() float64 {
 
 	// No data
 	return 0
+}
+
+func (c *Control) InternalConcurrency() float64 {
+	return c.internalConcurrency.Value()
 }
