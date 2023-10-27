@@ -39,17 +39,21 @@ type Control struct {
 
 	// Exponential Moving Average for beta setting.
 	betaEMA *ema.EMA
+
+	// Internal concurrency (for diagnostics)
+	internalConcurrency *ema.EMA
 }
 
 func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Duration) *Control {
 	return &Control{
-		plant:        plant,
-		t:            controlPeriod,
-		mq:           maxQueueTime,
-		unit:         unit,
-		betaEMA:      ema.NewEMA(1),
-		y:            ema.NewEMI(100),
-		betaIntegral: ema.NewEMI(100),
+		plant:               plant,
+		t:                   controlPeriod,
+		mq:                  maxQueueTime,
+		unit:                unit,
+		betaEMA:             ema.NewEMA(1),
+		y:                   ema.NewEMI(100),
+		betaIntegral:        ema.NewEMI(100),
+		internalConcurrency: ema.NewEMA(20),
 	}
 }
 
@@ -68,7 +72,6 @@ func (c *Control) SetEMISize(size int) {
 
 func (c *Control) Run() {
 	firstIteration := true
-	internalConcurrency := ema.NewEMA(20)
 
 	for {
 		time.Sleep(time.Duration(c.t) * c.unit)
@@ -124,7 +127,7 @@ func (c *Control) Run() {
 				c.k = float64(Q) / R / float64(c.mq)
 
 				// Save internal concurrency.
-				internalConcurrency.Add(float64(W) / float64(B))
+				c.internalConcurrency.Add(float64(W) / float64(B))
 
 			} else if W > 0 {
 				// The system is either overscaled or in equilibrium. Use the
@@ -150,8 +153,8 @@ func (c *Control) Run() {
 				// if we know this number is above 1, i.e. we have confirmed
 				// internal concurrency.
 				busyWorkers := float64(W)
-				if internalConcurrency.Value() > 1.0 {
-					busyWorkers /= internalConcurrency.Value()
+				if c.internalConcurrency.Value() > 1.0 {
+					busyWorkers /= c.internalConcurrency.Value()
 				}
 
 				yBInv := R / c.dx
@@ -243,4 +246,8 @@ func (c *Control) MuP() float64 {
 
 	// No data
 	return 0
+}
+
+func (c *Control) InternalConcurrency() float64 {
+	return c.internalConcurrency.Value()
 }
