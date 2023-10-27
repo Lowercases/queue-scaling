@@ -114,10 +114,11 @@ func (c *Control) Run() {
 				}
 			}
 
-			if Q > 0 {
-				// Q > 0 means the system is queued up so just use a y-dot
-				// estimation of the rate since workers are operating at full
-				// speed.
+			if Q > B {
+				// Q > 0 (considering Q <= beta as insignificant, as in high
+				// traffic it might be difficult to spot an actual 0) means the
+				// system is queued up so just use a y-dot estimation of the
+				// rate since workers are operating at full speed.
 				c.r = R
 				c.b = c.dx / R
 				c.k = float64(Q) / R / float64(c.mq)
