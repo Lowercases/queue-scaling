@@ -73,9 +73,9 @@ func (c *Control) Run() {
 		time.Sleep(time.Duration(c.t) * c.unit)
 
 		c.dx, c.dy = c.plant.DXY(c.unit)
-		XmY := c.plant.XmY()
 		B := c.plant.Beta()
 		Q := c.plant.Q()
+		W := c.plant.XmY() - Q
 
 		// Integrate beta and y. Practically speaking, in order to integrate
 		// them we should multiply by the period; but since they are always used
@@ -88,7 +88,7 @@ func (c *Control) Run() {
 			// since we've got no point of reference -- we'll leave it alone if
 			// greater than 0, and set it to 1 if there's data but it's scaled
 			// to 0.
-			if XmY == 0 {
+			if Q+W == 0 {
 				// The system isn't receiving messages, so it's safe to stop it
 				// or keep it stopped.
 				c.b = 0
@@ -122,7 +122,7 @@ func (c *Control) Run() {
 				c.b = c.dx / R
 				c.k = float64(Q) / R / float64(c.mq)
 
-			} else if XmY > 0 {
+			} else if W > 0 {
 				// The system is either overscaled or in equilibrium. Use the
 				// mean between the two rate estimations, in order to bring the
 				// lower bound of the rate estimation (obtained though
@@ -130,7 +130,7 @@ func (c *Control) Run() {
 				// given by Little's Theorem.
 				// Why not using Little's Theorem right away? To avoid flapping.
 				yBInv := R / c.dx
-				xBInv := 1.0 / float64(XmY)
+				xBInv := 1.0 / float64(W)
 				// Harmonic mean to discard overscaled values
 				c.b = 2.0 / (xBInv + yBInv)
 				c.r = c.dx / c.b
