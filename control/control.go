@@ -118,6 +118,9 @@ func (c *Control) Run() {
 				}
 			}
 
+			// Save internal concurrency.
+			c.internalConcurrency.Add(float64(W) / float64(B))
+
 			if Q > B {
 				// Q > 0 (considering Q <= beta as insignificant, as in high
 				// traffic it might be difficult to spot an actual 0) means the
@@ -126,9 +129,6 @@ func (c *Control) Run() {
 				c.r = R
 				c.b = c.dx / R
 				c.k = float64(Q) / R / float64(c.mq)
-
-				// Save internal concurrency.
-				c.internalConcurrency.Add(float64(W) / float64(B))
 
 			} else if W > 0 {
 				// The system is either overscaled or in equilibrium. Use the
