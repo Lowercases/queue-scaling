@@ -119,7 +119,9 @@ func (c *Control) Run() {
 			}
 
 			// Save internal concurrency.
-			c.internalConcurrency.Add(float64(W) / float64(B))
+			if B > 0 {
+				c.internalConcurrency.Add(float64(W) / float64(B))
+			}
 
 			if Q > B {
 				// Q > 0 (considering Q <= beta as insignificant, as in high
