@@ -198,8 +198,14 @@ func (c *Control) Run() {
 			continue
 		}
 
-		// Set b
-		c.plant.SetB() <- c.betaEMA.Value() + c.k
+		// Set b. The computed k value is sufficient to by itself flush out the
+		// existing queue in under the maximum time, ignoring the rate-dependent
+		// term -- use the maximum between them.
+		if c.k > c.betaEMA.Value() {
+			c.plant.SetB() <- c.k
+		} else {
+			c.plant.SetB() <- c.betaEMA.Value()
+		}
 
 	}
 
