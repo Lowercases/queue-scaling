@@ -154,7 +154,7 @@ func (m *SQSManager) updateStats() error {
 		return fmt.Errorf("Error querying Cloudwatch: %s", err)
 	}
 
-	// FIXME parametrise in function of the fucking array we're sending
+	// FIXME parametrise based on the array we're sending
 	if len(gmdo.MetricDataResults) != 2 {
 		return fmt.Errorf("Error querying Cloudwatch: expected 2 results, got %d", len(gmdo.MetricDataResults))
 	}
