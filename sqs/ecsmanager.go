@@ -15,6 +15,7 @@ type ECSManager struct {
 	cluster, service string
 	ecs              *ecs.ECS
 	min, max         int64
+	desired          int64
 }
 
 func NewECSManager(cluster, service string) *ECSManager {
@@ -25,6 +26,7 @@ func NewECSManager(cluster, service string) *ECSManager {
 		cluster: cluster,
 		service: service,
 		ecs:     ecs.New(sess),
+		desired: -1,
 	}
 
 	go m.run()
@@ -75,12 +77,19 @@ func (m *ECSManager) Beta() (uint, error) {
 			m.service, m.cluster)
 	}
 	srv := dso.Services[0]
+	m.desired = *srv.DesiredCount
 
 	return uint(*srv.RunningCount), nil
 
 }
 
 func (m *ECSManager) updateB(b int64) {
+	// Avoid calling UpdateService for bogus calls since it can quickly hit the
+	// API rate limit.
+	if m.desired == b {
+		return
+	}
+
 	_, err := m.ecs.UpdateService(&ecs.UpdateServiceInput{
 		Cluster:      aws.String(m.cluster),
 		Service:      aws.String(m.service),
