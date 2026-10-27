@@ -33,16 +33,24 @@ type Control struct {
 	dx, dy  float64 // derivatives (integral differences)
 	r, b, k float64 // measured R and b and k setpoints
 	xd      uint    // expected messages in the system
+	u       float64 // utilisation of the workers' capacity
 
-	// Beta integral and y estimation
-	y, betaIntegral *ema.EMA
+	// Busy workers integral and y estimation
+	y, busyIntegral *ema.EMA
 
 	// Exponential Moving Average for beta setting.
 	betaEMA *ema.EMA
 
-	// Internal concurrency (for diagnostics)
+	// Internal concurrency, sampled as W / β on every active scenario, and
+	// only while queued up. Both are lower bounds of the actual one, the
+	// latter closer to it since the workers are then full.
 	internalConcurrency *ema.EMA
+	queuedConcurrency   *ema.EMA
 }
+
+// Lower bound for the utilisation when correcting R. W is a snapshot, so when
+// only a few messages are in process its noise would make R / u blow up.
+const minUtilisation = 0.1
 
 func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Duration) *Control {
 	return &Control{
@@ -52,8 +60,9 @@ func NewControl(plant Manager, controlPeriod, maxQueueTime uint, unit time.Durat
 		unit:                unit,
 		betaEMA:             ema.NewEMA(1),
 		y:                   ema.NewEMI(100),
-		betaIntegral:        ema.NewEMI(100),
+		busyIntegral:        ema.NewEMI(100),
 		internalConcurrency: ema.NewEMA(20),
+		queuedConcurrency:   ema.NewEMA(20),
 	}
 }
 
@@ -67,7 +76,7 @@ func (c *Control) SetEMASize(size int) {
 
 func (c *Control) SetEMISize(size int) {
 	c.y = ema.NewEMI(size)
-	c.betaIntegral = ema.NewEMI(size)
+	c.busyIntegral = ema.NewEMI(size)
 }
 
 func (c *Control) Run() {
@@ -81,13 +90,41 @@ func (c *Control) Run() {
 		Q := c.plant.Q()
 		W := c.plant.XmY() - Q
 
-		// Integrate beta and y. Practically speaking, in order to integrate
-		// them we should multiply by the period; but since they are always used
-		// as a ratio y / betaIntegral or compared against 0, we can avoid that.
-		c.y.Add(c.dy)                  // * float64(c.t)
-		c.betaIntegral.Add(float64(B)) // * float64(c.t)
+		// Utilisation of the workers' capacity, i.e. W / β divided by their
+		// internal concurrency. Since the internal concurrency is estimated
+		// from lower bounds of it, this is an upper bound of the utilisation.
+		c.u = 0
+		if B > 0 {
+			c.u = 1
+			if Q <= B { // Not queued up
+				c.u = math.Min(1, float64(W)/float64(B)/c.InternalConcurrency())
+			}
+		}
 
-		if c.y.Value()*float64(c.t) < 1 || c.betaIntegral.Value() < 1 {
+		// Busy workers, i.e. those R is measured against. Since the utilisation
+		// is an upper bound, the correction might be partial but never
+		// excessive. The utilisation is bounded below so as not to blow R up.
+		// With nothing in process the workers are either idle, which shouldn't
+		// count against R, or processing too quickly to be observed, in which
+		// case the snapshot doesn't reflect the utilisation over the period
+		// and we don't correct.
+		busy := float64(B)
+		if Q <= B { // Not queued up
+			if W > 0 {
+				busy *= math.Max(minUtilisation, c.u)
+			} else if c.dy == 0 {
+				busy = 0
+			}
+		}
+
+		// Integrate busy workers and y. Practically speaking, in order to
+		// integrate them we should multiply by the period; but since they are
+		// always used as a ratio y / busyIntegral or compared against 0, we can
+		// avoid that.
+		c.y.Add(c.dy)            // * float64(c.t)
+		c.busyIntegral.Add(busy) // * float64(c.t)
+
+		if c.y.Value()*float64(c.t) < 1 || c.busyIntegral.Value() < 1 {
 			// The system hasn't started yet. This is an arbitrary sane choice,
 			// since we've got no point of reference -- we'll leave it alone if
 			// greater than 0, and set it to 1 if there's data but it's scaled
@@ -110,9 +147,11 @@ func (c *Control) Run() {
 			// instant throughput (y-dot/beta) and historic (y/B), since the
 			// latter is less exact but good when beta is close to zero, when
 			// the workers are very likely to be starved.
-			R := c.y.Value() / c.betaIntegral.Value()
-			if B > 0 {
-				RI := c.dy / float64(B)
+			// Both count only the workers that were busy, so that idle ones
+			// don't drag R down when the system is overscaled.
+			R := c.y.Value() / c.busyIntegral.Value()
+			if busy > 0 {
+				RI := c.dy / busy
 				if RI > R {
 					R = RI
 				}
@@ -124,6 +163,11 @@ func (c *Control) Run() {
 			}
 
 			if Q > B {
+				// Save internal concurrency while the workers are full.
+				if B > 0 {
+					c.queuedConcurrency.Add(float64(W) / float64(B))
+				}
+
 				// Q > 0 (considering Q <= beta as insignificant, as in high
 				// traffic it might be difficult to spot an actual 0) means the
 				// system is queued up so just use a y-dot estimation of the
@@ -152,13 +196,8 @@ func (c *Control) Run() {
 				// internal concurrency average from samples from when the
 				// system is queued up (Q > 0), which should mean that the
 				// system is showing its internal concurrency in W / β.
-				// We now use that to estimate number of active workers -- only
-				// if we know this number is above 1, i.e. we have confirmed
-				// internal concurrency.
-				busyWorkers := float64(W)
-				if c.internalConcurrency.Value() > 1.0 {
-					busyWorkers /= c.internalConcurrency.Value()
-				}
+				// We now use that to estimate number of active workers.
+				busyWorkers := float64(W) / c.InternalConcurrency()
 
 				yBInv := R / c.dx
 				xBInv := 1.0 / busyWorkers
@@ -251,6 +290,14 @@ func (c *Control) MuP() float64 {
 	return 0
 }
 
+// Internal concurrency of the workers, i.e. how many messages each one
+// processes at a time when full. Both samplings are lower bounds of it, so the
+// highest is taken, or 1 when there are none.
 func (c *Control) InternalConcurrency() float64 {
-	return c.internalConcurrency.Value()
+	return math.Max(1, math.Max(c.internalConcurrency.Value(), c.queuedConcurrency.Value()))
+}
+
+// Utilisation of the workers' capacity, from 0 to 1.
+func (c *Control) Utilisation() float64 {
+	return c.u
 }
